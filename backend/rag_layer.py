@@ -1,241 +1,237 @@
-import os
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from typing import List, Dict, Any
+"""
+RAG (Retrieval-Augmented Generation) Layer for archetype blending.
+Manages Supabase integration and intelligent archetype retrieval.
+"""
+import logging
+from typing import List, Optional, Dict
+from models import Archetype
+from config import settings
 
-# --- Significance of Loading Environment Variables ---
-# This loads our environment variables from the .env file, including Supabase credentials.
-# We need this to securely connect to our database without hardcoding sensitive information.
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-# --- Significance of the Embedding Model ---
-# This is a pre-trained AI model that converts text into numerical vectors (embeddings).
-# These embeddings capture the semantic meaning of text - similar concepts have similar embeddings.
-# We use this to compare user input with stored archetypes and find the most relevant matches.
-# The model 'all-MiniLM-L6-v2' is lightweight but effective for semantic similarity tasks.
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Built-in archetype dataset (can be synced with Supabase)
+ARCHETYPE_DATASET = [
+    {
+        "id": "cyberpunk_poet",
+        "aesthetic": "Cyberpunk Poet",
+        "traits": ["Melancholic", "Tech-savvy", "Nocturnal", "Introspective"],
+        "vibe_keywords": ["neon", "dystopian", "rebellious", "poetic"],
+        "moodboard_prompts": [
+            "neon skyline at midnight, rain reflecting lights",
+            "vintage CRT monitor glowing in darkness",
+            "punk jacket covered in flowers and tech",
+            "holographic interface with poetry text",
+            "dark city rooftop with stars visible through smog",
+            "broken keyboard with moss growing",
+            "cyberpunk femme fatale with sad eyes"
+        ],
+        "playlist_keywords": ["dark", "electronic", "melancholic", "cyberpunk"]
+    },
+    {
+        "id": "cottagecore_romantic",
+        "aesthetic": "Cottagecore Romantic",
+        "traits": ["Whimsical", "Nature-loving", "Gentle", "Nostalgic"],
+        "vibe_keywords": ["cottage", "pastoral", "vintage", "cottagecore"],
+        "moodboard_prompts": [
+            "overgrown garden cottage with wildflowers",
+            "vintage tea set in morning sunlight",
+            "handwritten journal surrounded by flowers",
+            "forest path lined with mushrooms",
+            "misty morning in a small village",
+            "antique lace and dried herbs",
+            "cozy fireplace with books and candles"
+        ],
+        "playlist_keywords": ["acoustic", "folk", "indie", "cottagecore"]
+    },
+    {
+        "id": "cloudcore_dreamer",
+        "aesthetic": "Cloudcore Catnapper",
+        "traits": ["Dreamy", "Introspective", "Gentle", "Artistic"],
+        "vibe_keywords": ["fluffy", "cloud", "pastel", "dreamy"],
+        "moodboard_prompts": [
+            "fluffy clouds against pink sky",
+            "soft pastel sunrise through window",
+            "cozy blankets and pillows in warm light",
+            "cat sleeping among clouds",
+            "cotton candy colored landscape",
+            "soft focus photography aesthetic",
+            "dreamy underwater or cloud realm"
+        ],
+        "playlist_keywords": ["lofi", "ambient", "calm", "dreamy"]
+    },
+    {
+        "id": "dark_academia",
+        "aesthetic": "Dark Academia Rebel",
+        "traits": ["Intellectual", "Mysterious", "Ambitious", "Bookish"],
+        "vibe_keywords": ["academia", "dark", "mysterious", "gothic"],
+        "moodboard_prompts": [
+            "old library with candlelit bookshelves",
+            "leather-bound books and fountain pens",
+            "gothic university architecture",
+            "wine glasses and classical art",
+            "mysterious figure in vintage school uniform",
+            "ornate vintage textbooks",
+            "candlelit study with autumn leaves"
+        ],
+        "playlist_keywords": ["classical", "dark", "mysterious", "indie"]
+    },
+    {
+        "id": "maximalist_artist",
+        "aesthetic": "Maximalist Creator",
+        "traits": ["Expressive", "Colorful", "Bold", "Unapologetic"],
+        "vibe_keywords": ["colorful", "bold", "artistic", "expressive"],
+        "moodboard_prompts": [
+            "vibrant art studio with exploding colors",
+            "mixed media collage bursting with life",
+            "bold makeup and clashing patterns",
+            "graffiti walls and street art energy",
+            "cluttered creative space filled with inspiration",
+            "rainbow gradient aesthetic",
+            "experimental fashion and art pieces"
+        ],
+        "playlist_keywords": ["experimental", "energetic", "bold", "electronic"]
+    }
+]
+
 
 class RAGLayer:
-    """
-    RAG (Retrieval-Augmented Generation) Layer for Muse.me
-    
-    This class handles:
-    1. Storing aesthetic archetypes in Supabase with their embeddings
-    2. Finding relevant archetypes based on user input similarity
-    3. Providing context to enhance AI responses
-    
-    Significance: RAG makes our AI responses more sophisticated by giving the model
-    relevant examples and inspiration from a curated database of aesthetic personas.
-    """
-    
-    def __init__(self):
-        # --- Significance of Supabase Connection ---
-        # Supabase provides us with a PostgreSQL database with vector similarity search capabilities.
-        # This is perfect for RAG because we can store both text and embeddings, then query
-        # for similar items efficiently.
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
-        
-        if not supabase_url or not supabase_key:
-            raise ValueError("Supabase credentials not found in environment variables")
-            
-        self.supabase: Client = create_client(supabase_url, supabase_key)
-    
-    def create_embedding(self, text: str) -> List[float]:
-        """
-        Convert text into a numerical vector that represents its semantic meaning.
-        
-        Args:
-            text: The input text to embed
-            
-        Returns:
-            A list of floating-point numbers representing the text's semantic embedding
-            
-        Significance: This is the core of semantic search. By converting both user input
-        and stored archetypes into embeddings, we can mathematically compare their similarity.
-        """
-        # The sentence transformer returns a numpy array, we convert to list for JSON storage
-        embedding = embedding_model.encode(text)
-        return embedding.tolist()
-    
-    def store_archetype(self, name: str, description: str, traits: List[str], 
-                       routine: List[str], vibe: str, style_keywords: List[str]) -> bool:
-        """
-        Store a new aesthetic archetype in the database with its embedding.
-        
-        Args:
-            name: The archetype's aesthetic identity name
-            description: A detailed description of the archetype
-            traits: List of personality traits
-            routine: Daily routine steps
-            vibe: Overall vibe description
-            style_keywords: Keywords that define the aesthetic style
-            
-        Returns:
-            True if successful, False otherwise
-            
-        Significance: This function populates our RAG database with curated aesthetic
-        personas that will later be used to inspire and enhance AI responses.
-        """
-        try:
-            # --- Significance of Text Combination for Embedding ---
-            # We combine all the archetype's text data into one string for embedding.
-            # This creates a comprehensive semantic representation that captures
-            # the full essence of the aesthetic persona.
-            combined_text = f"{name} {description} {' '.join(traits)} {' '.join(routine)} {vibe} {' '.join(style_keywords)}"
-            embedding = self.create_embedding(combined_text)
-            
-            # --- Significance of Database Structure ---
-            # We store both the original data and the embedding. This allows us to:
-            # 1. Search by similarity using embeddings
-            # 2. Return rich, human-readable data for context enhancement
-            archetype_data = {
-                "name": name,
-                "description": description,
-                "traits": traits,
-                "routine": routine,
-                "vibe": vibe,
-                "style_keywords": style_keywords,
-                "embedding": embedding,
-                "combined_text": combined_text
-            }
-            
-            result = self.supabase.table("archetypes").insert(archetype_data).execute()
-            return True
-            
-        except Exception as e:
-            print(f"Error storing archetype: {e}")
-            return False
-    
-    def find_similar_archetypes(self, user_input: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """
-        Find the most similar archetypes to the user's input using semantic similarity.
-        
-        Args:
-            user_input: The user's text (journal entry, bio, etc.)
-            limit: Number of similar archetypes to return
-            
-        Returns:
-            List of archetype dictionaries, ordered by similarity
-            
-        Significance: This is the "Retrieval" part of RAG. By finding relevant archetypes,
-        we provide the AI with contextual examples that will make its responses more
-        creative, varied, and appropriate to the user's input.
-        """
-        try:
-            # Create embedding for user input
-            user_embedding = self.create_embedding(user_input)
-            
-            # --- Significance of Vector Similarity Search ---
-            # We fetch all archetypes and their embeddings, then calculate similarity scores.
-            # In a production app, you'd use Supabase's vector similarity functions,
-            # but this approach works well for demonstration and smaller datasets.
-            all_archetypes = self.supabase.table("archetypes").select("*").execute()
-            
-            if not all_archetypes.data:
-                return []
-            
-            # Calculate similarity scores
-            similarities = []
-            for archetype in all_archetypes.data:
-                archetype_embedding = np.array(archetype["embedding"])
-                user_embedding_array = np.array(user_embedding)
-                
-                # --- Significance of Cosine Similarity ---
-                # Cosine similarity measures the angle between two vectors.
-                # It's perfect for text embeddings because it focuses on direction
-                # (semantic meaning) rather than magnitude (text length).
-                similarity = np.dot(user_embedding_array, archetype_embedding) / (
-                    np.linalg.norm(user_embedding_array) * np.linalg.norm(archetype_embedding)
-                )
-                
-                similarities.append((archetype, similarity))
-            
-            # Sort by similarity (highest first) and return top results
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            return [archetype for archetype, _ in similarities[:limit]]
-            
-        except Exception as e:
-            print(f"Error finding similar archetypes: {e}")
-            return []
-    
-    def get_rag_context(self, user_input: str) -> str:
-        """
-        Generate context text for the AI prompt based on similar archetypes.
-        
-        Args:
-            user_input: The user's input text
-            
-        Returns:
-            Formatted context string to add to the AI prompt
-            
-        Significance: This function transforms retrieved archetypes into a format
-        that enhances the AI's prompt. The AI will use these examples as inspiration
-        to create more sophisticated and varied aesthetic personas.
-        """
-        similar_archetypes = self.find_similar_archetypes(user_input, limit=3)
-        
-        if not similar_archetypes:
-            return ""
-        
-        # --- Significance of Context Formatting ---
-        # We format the retrieved archetypes into a clear, structured format
-        # that the AI can easily understand and use as inspiration.
-        context_parts = ["Here are some similar aesthetic archetypes for inspiration:"]
-        
-        for i, archetype in enumerate(similar_archetypes, 1):
-            context_part = f"""
-Example {i}:
-- Name: {archetype['name']}
-- Vibe: {archetype['vibe']}
-- Traits: {', '.join(archetype['traits'])}
-- Style: {', '.join(archetype['style_keywords'])}
-"""
-            context_parts.append(context_part)
-        
-        context_parts.append("\nUse these as inspiration but create something unique and fitting for the user's input.")
-        
-        return "\n".join(context_parts)
+    """Retrieval-Augmented Generation layer for intelligent archetype blending."""
 
-# --- Significance of Sample Data Function ---
-# This function demonstrates how to populate the RAG database with initial archetypes.
-# In a real application, you'd have a more extensive, curated database of aesthetic personas.
-def populate_sample_archetypes():
-    """
-    Populate the database with sample aesthetic archetypes.
-    This creates the initial knowledge base for our RAG system.
-    """
-    rag = RAGLayer()
-    
-    sample_archetypes = [
-        {
-            "name": "Cottagecore Dreamer",
-            "description": "Lives in harmony with nature, embraces simple pleasures and rustic beauty",
-            "traits": ["gentle", "nurturing", "romantic", "peaceful"],
-            "routine": ["sunrise garden tending", "afternoon tea with wildflower honey", "evening reading by candlelight"],
-            "vibe": "Soft mornings and golden hour magic in a countryside cottage",
-            "style_keywords": ["floral patterns", "vintage linens", "wooden furniture", "dried flowers", "cozy knits"]
-        },
-        {
-            "name": "Dark Academia Scholar",
-            "description": "Intellectual aesthete drawn to gothic architecture, classical literature, and timeless knowledge",
-            "traits": ["intellectual", "mysterious", "sophisticated", "contemplative"],
-            "routine": ["dawn library research", "afternoon philosophy discussions", "midnight manuscript writing"],
-            "vibe": "Ancient libraries and whispered secrets in shadowed halls",
-            "style_keywords": ["tweed blazers", "leather-bound books", "gothic architecture", "vintage fountain pens", "aged paper"]
-        },
-        {
-            "name": "Cyber Ethereal",
-            "description": "Bridges the digital and spiritual realms with neon-lit meditation and virtual reality dreams",
-            "traits": ["futuristic", "mystical", "innovative", "transcendent"],
-            "routine": ["neon-lit morning meditation", "virtual reality art creation", "stargazing with digital telescopes"],
-            "vibe": "Electric dreams and digital divinity in a neon-soaked future",
-            "style_keywords": ["holographic materials", "LED lights", "metallic textures", "geometric patterns", "translucent fabrics"]
+    def __init__(self):
+        self.archetypes = [Archetype(**a) for a in ARCHETYPE_DATASET]
+        logger.info(f"Initialized RAG with {len(self.archetypes)} archetypes")
+
+    def extract_keywords(self, text: str) -> List[str]:
+        """
+        Extract relevant keywords from user input.
+        
+        Args:
+            text: User input text
+            
+        Returns:
+            List of extracted keywords
+        """
+        # Simple keyword extraction (can be enhanced with NLP)
+        common_stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'is', 'am', 'are', 'was', 'were', 'be',
+            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+            'should', 'may', 'might', 'can', 'i', 'me', 'my', 'you', 'your'
         }
-    ]
-    
-    for archetype in sample_archetypes:
-        rag.store_archetype(**archetype)
-        print(f"Stored archetype: {archetype['name']}")
+
+        # Simple tokenization and filtering
+        words = text.lower().split()
+        keywords = [
+            word.strip('.,!?;:') for word in words
+            if word.lower() not in common_stop_words and len(word) > 3
+        ]
+        return keywords[:10]  # Return top 10 keywords
+
+    def retrieve_archetypes(
+        self,
+        keywords: List[str],
+        aesthetic_preference: Optional[str] = None,
+        limit: int = 3
+    ) -> List[Archetype]:
+        """
+        Retrieve relevant archetypes based on keywords and aesthetic preference.
+        
+        Args:
+            keywords: Extracted keywords from user input
+            aesthetic_preference: Optional aesthetic direction
+            limit: Number of archetypes to return
+            
+        Returns:
+            List of relevant archetypes
+        """
+        scored_archetypes: Dict[str, float] = {}
+
+        for archetype in self.archetypes:
+            score = 0.0
+
+            # Match keywords with archetype attributes
+            for keyword in keywords:
+                keyword_lower = keyword.lower()
+                
+                # Check against vibe keywords
+                if any(keyword_lower in vibe.lower() 
+                       for vibe in archetype.vibe_keywords):
+                    score += 2.0
+                
+                # Check against traits
+                if any(keyword_lower in trait.lower() 
+                       for trait in archetype.traits):
+                    score += 1.5
+                
+                # Partial matches
+                if keyword_lower in archetype.aesthetic.lower():
+                    score += 1.0
+
+            # Boost score if aesthetic preference matches
+            if aesthetic_preference and aesthetic_preference.lower() in archetype.aesthetic.lower():
+                score += 5.0
+
+            if score > 0:
+                scored_archetypes[archetype.id] = score
+
+        # Sort by score and return top matches
+        sorted_ids = sorted(
+            scored_archetypes.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        result = [
+            next(a for a in self.archetypes if a.id == arch_id)
+            for arch_id, _ in sorted_ids[:limit]
+        ]
+
+        logger.info(f"Retrieved {len(result)} archetypes for keywords: {keywords[:5]}")
+        return result
+
+    def blend_archetypes(
+        self,
+        primary_archetype: Archetype,
+        secondary_archetypes: List[Archetype]
+    ) -> Dict:
+        """
+        Intelligently blend archetypes for unique persona generation.
+        
+        Args:
+            primary_archetype: Main archetype
+            secondary_archetypes: Supporting archetypes to blend
+            
+        Returns:
+            Dict with blended attributes for prompt enhancement
+        """
+        blended = {
+            "primary_aesthetic": primary_archetype.aesthetic,
+            "blended_traits": list(set(
+                primary_archetype.traits +
+                [t for arch in secondary_archetypes for t in arch.traits]
+            ))[:5],
+            "combined_keywords": list(set(
+                primary_archetype.vibe_keywords +
+                [k for arch in secondary_archetypes for k in arch.vibe_keywords]
+            ))[:8],
+            "enhanced_prompts": (
+                primary_archetype.moodboard_prompts +
+                [p for arch in secondary_archetypes for p in arch.moodboard_prompts]
+            )[:10]
+        }
+
+        logger.info(f"Blended archetypes: {blended['primary_aesthetic']}")
+        return blended
+
+
+# Singleton instance
+_rag_layer: Optional[RAGLayer] = None
+
+
+def get_rag_layer() -> RAGLayer:
+    """Get or create RAG layer singleton."""
+    global _rag_layer
+    if _rag_layer is None:
+        _rag_layer = RAGLayer()
+    return _rag_layer

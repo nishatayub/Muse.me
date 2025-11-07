@@ -1,179 +1,133 @@
-import os
+"""
+LLM Engine for persona generation using OpenRouter API.
+Handles structured output and prompt engineering.
+"""
+import httpx
 import json
-from openai import OpenAI
-from dotenv import load_dotenv
-from rag_layer import RAGLayer
-from vector_database import VectorDatabase
+import logging
+from typing import Optional
+from config import settings
+from models import AestheticResponse
+from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, AESTHETIC_HINT_TEMPLATE
 
-# Load environment variables
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
 
-# Initialize both RAG layer (fallback) and Vector Database (primary)
-try:
-    vector_db = VectorDatabase()
-    print("✅ Vector Database initialized successfully")
-    use_vector_db = True
-except Exception as e:
-    print(f"⚠️ Vector Database failed to initialize: {e}")
-    print("🔄 Falling back to basic RAG layer")
-    rag_layer = RAGLayer()
-    use_vector_db = False
+class LLMEngine:
+    """Handles all interactions with OpenRouter API for persona generation."""
 
-SYSTEM_PROMPT = """
-You are a poetic, emotionally intelligent AI with a rich aesthetic vocabulary. 
-Your purpose is to transform a user's mundane text (like a journal entry, bio, or daily routine) into a romanticized, aesthetic alter ego.
+    def __init__(self):
+        self.api_key = settings.openrouter_api_key
+        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.model = "mistralai/mixtral-8x7b-instruct"  # High quality, cost-effective
+        self.client = httpx.AsyncClient(timeout=60.0)
 
-You must analyze the user's input and respond with a JSON object containing exactly the following keys:
-- "aesthetic_identity": A creative and fitting name for the persona (e.g., "Velvet Morning Dreamer", "Cyberpunk Poet").
-- "routine": A list of 3-5 strings, where each string is a fictional, poetic step in the persona's daily routine.
-- "traits": A list of 3-5 single-word strings describing the persona's personality traits.
-- "vibe_description": A short, evocative sentence capturing the overall feeling of the persona.
-- "moodboard_prompts": A list of 3-5 descriptive strings that can be used as prompts for an AI image generator.
-- "spotify_playlist": A creative and fitting name for a Spotify playlist that matches the persona's vibe.
-
-Do not include any text or explanations outside of the JSON object itself.
-"""
-
-def generate_persona(user_input: str, use_enhanced_search: bool = True) -> dict:
-    """
-    Generates an aesthetic persona using enhanced vector database RAG.
-    
-    Args:
-        user_input: The text provided by the user.
-        use_enhanced_search: Whether to use the vector database (True) or fall back to basic RAG (False)
+    async def generate_persona(
+        self,
+        user_input: str,
+        aesthetic_preference: Optional[str] = None
+    ) -> AestheticResponse:
+        """
+        Generate an aesthetic persona using OpenRouter API.
         
-    Returns:
-        A dictionary containing the structured persona data, parsed from the AI's JSON response.
-        
-    Significance: This function now uses advanced vector database operations for RAG.
-    The enhanced process:
-    1. Use native vector similarity search for faster, more accurate archetype retrieval
-    2. Support multiple similarity metrics (cosine, euclidean, dot product)
-    3. Enhanced context formatting with richer archetype data
-    4. Fallback to basic RAG if vector database is unavailable
-    """
-    try:
-        # --- Enhanced Vector Database RAG ---
-        if use_vector_db and use_enhanced_search:
-            # Use vector database for enhanced similarity search
-            similar_archetypes = vector_db.vector_similarity_search(
-                user_input, 
-                limit=3, 
-                similarity_metric="cosine"
-            )
+        Args:
+            user_input: User's description to transform
+            aesthetic_preference: Optional aesthetic direction
             
-            # Format enhanced context from vector database results
-            if similar_archetypes:
-                context_parts = ["Here are similar aesthetic archetypes for inspiration (from vector database):"]
-                
-                for i, archetype in enumerate(similar_archetypes, 1):
-                    similarity_score = archetype.get('similarity_score', 0)
-                    context_part = f"""
-Example {i} (similarity: {similarity_score:.3f}):
-- Name: {archetype['name']}
-- Vibe: {archetype['vibe']}
-- Traits: {', '.join(archetype['traits'])}
-- Style Keywords: {', '.join(archetype['style_keywords'])}
-- Sample Routine: {', '.join(archetype['routine'][:2])}...
-"""
-                    context_parts.append(context_part)
-                
-                context_parts.append("\nUse these as inspiration but create something unique and fitting for the user's input. The similarity scores indicate relevance.")
-                enhanced_context = "\n".join(context_parts)
-            else:
-                enhanced_context = ""
-                
-        else:
-            # Fallback to basic RAG layer
-            enhanced_context = rag_layer.get_rag_context(user_input) if not use_vector_db else ""
-        
-        # --- Enhanced System Prompt ---
-        enhanced_system_prompt = SYSTEM_PROMPT
-        if enhanced_context:
-            enhanced_system_prompt = f"{SYSTEM_PROMPT}\n\n{enhanced_context}"
-        
-        completion = client.chat.completions.create(
-            model="mistralai/mistral-7b-instruct",
-            messages=[
-                {
-                    "role": "system",
-                    "content": enhanced_system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_input,
-                },
-            ],
-            response_format={"type": "json_object"},
-        )
-        
-        response_text = completion.choices[0].message.content
-        result = json.loads(response_text)
-        
-        # Add metadata about the generation process
-        result["_metadata"] = {
-            "used_vector_db": use_vector_db and use_enhanced_search,
-            "context_provided": bool(enhanced_context),
-            "similarity_search_enabled": use_enhanced_search
-        }
-        
-        return result
-
-    except Exception as e:
-        print(f"An error occurred while generating the persona: {e}")
-        return {"error": "Failed to generate persona.", "_metadata": {"error_details": str(e)}}
-
-def generate_persona_with_similarity_metrics(user_input: str) -> dict:
-    """
-    Generate persona with comparison across different similarity metrics.
-    
-    Args:
-        user_input: The text provided by the user
-        
-    Returns:
-        Dictionary containing persona and similarity analysis
-        
-    Significance: This function demonstrates the power of the vector database
-    by showing how different similarity metrics affect archetype retrieval.
-    """
-    if not use_vector_db:
-        return generate_persona(user_input, use_enhanced_search=False)
-    
-    try:
-        # Test different similarity metrics
-        metrics = ["cosine", "euclidean", "dot_product"]
-        similarity_results = {}
-        
-        for metric in metrics:
-            similar_archetypes = vector_db.vector_similarity_search(
-                user_input,
-                limit=3,
-                similarity_metric=metric
-            )
+        Returns:
+            AestheticResponse: Structured persona data
             
-            similarity_results[metric] = [
-                {
-                    "name": arch["name"],
-                    "similarity_score": arch.get("similarity_score", 0),
-                    "vibe": arch["vibe"]
-                }
-                for arch in similar_archetypes[:2]  # Top 2 for each metric
-            ]
-        
-        # Generate persona using the best metric (cosine is generally best for text)
-        persona = generate_persona(user_input, use_enhanced_search=True)
-        
-        # Add similarity analysis
-        persona["_similarity_analysis"] = similarity_results
-        
-        return persona
-        
-    except Exception as e:
-        print(f"Error in similarity metrics comparison: {e}")
-        return generate_persona(user_input, use_enhanced_search=False)
+        Raises:
+            ValueError: If API response is invalid
+        """
+        try:
+            # Build user message with optional aesthetic hint
+            aesthetic_hint = ""
+            if aesthetic_preference:
+                aesthetic_hint = AESTHETIC_HINT_TEMPLATE.format(
+                    aesthetic=aesthetic_preference
+                )
 
+            user_message = USER_PROMPT_TEMPLATE.format(
+                user_input=user_input,
+                aesthetic_hint=aesthetic_hint
+            )
+
+            # Prepare API request
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "HTTP-Referer": settings.backend_url,
+                "X-Title": "Muse.me"
+            }
+
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message
+                    }
+                ],
+                "temperature": 0.8,  # Creative but coherent
+                "max_tokens": 1500,
+                "response_format": {"type": "json_object"}  # Force JSON output
+            }
+
+            # Call OpenRouter API
+            logger.info(f"Calling OpenRouter with model: {self.model}")
+            response = await self.client.post(
+                self.api_url,
+                json=payload,
+                headers=headers
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+
+            # Parse JSON response
+            try:
+                persona_dict = json.loads(content)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse API response as JSON: {content}")
+                raise ValueError("API returned invalid JSON")
+
+            # Validate and construct AestheticResponse
+            persona = AestheticResponse(**persona_dict)
+            logger.info(f"Successfully generated persona: {persona.aesthetic_identity}")
+            return persona
+
+        except httpx.HTTPError as e:
+            logger.error(f"API request failed: {str(e)}")
+            raise ValueError(f"Failed to generate persona: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error in LLM engine: {str(e)}")
+            raise
+
+    async def close(self):
+        """Close HTTP client."""
+        await self.client.aclose()
+
+
+# Singleton instance
+_llm_engine: Optional[LLMEngine] = None
+
+
+async def get_llm_engine() -> LLMEngine:
+    """Get or create LLM engine singleton."""
+    global _llm_engine
+    if _llm_engine is None:
+        _llm_engine = LLMEngine()
+    return _llm_engine
+
+
+async def close_llm_engine():
+    """Close LLM engine."""
+    global _llm_engine
+    if _llm_engine:
+        await _llm_engine.close()
+        _llm_engine = None
