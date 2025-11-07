@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     supabase_key: Optional[str] = None
     replicate_api_token: Optional[str] = None
 
-    # App Settings
+    # Environment Settings
     environment: str = "production"
     debug: bool = False
-    backend_url: str = "http://localhost:8000"
-    frontend_url: str = "http://localhost:3000"
+    backend_url: str = "https://muse-me-backend.vercel.app"
+    frontend_url: str = "https://muse-me.vercel.app"
 
     class Config:
         env_file = ".env"
