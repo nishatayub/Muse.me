@@ -2,24 +2,6 @@
 
 <div align="center">
 
-<details>
-<summary><strong>Click to expand</strong></summary>
-
-A sophisticated system prompt guides the model to respond with poetic yet structured output:
-
-```
-"You are a poetic, emotionally intelligent AI with a rich aesthetic vocabulary…"
-```
-
-**The prompt instructs the model to return:**
-- ✨ Aesthetic identity name  
-- 📅 Fictional daily routine (3–5 steps)  
-- � 3–5 personality traits  
-- �🌸 Vibe description  
-- 🎨 Moodboard prompts  
-- 🎵 Spotify playlist name
-
-</details>
 **Transform real-life monotony into aesthetic alternate lives through creative, intelligent automation.**
 
 [✨ Live Demo](https://muse-me.vercel.app) • [📖 Documentation](docs/README.md) • [🐛 Report Bug](https://github.com/kalviumcommunity/Muse.me/issues) • [💡 Request Feature](https://github.com/kalviumcommunity/Muse.me/issues)
@@ -129,17 +111,24 @@ Seamless experience across desktop, tablet, and mobile devices
 
 ### 🧾 1. Prompt Engineering
 
-A structured system prompt guides the model to respond with poetic yet structured output based on user input.  
-> “You are a poetic, emotionally intelligent AI with a rich aesthetic vocabulary…”
+<details>
+<summary><strong>Click to expand</strong></summary>
 
-It instructs the model to return:
+A sophisticated system prompt guides the model to respond with poetic yet structured output:
 
-- Aesthetic identity name  
-- Fictional daily routine (3–5 steps)  
-- 3–5 personality traits  
-- Vibe description  
-- Moodboard prompts  
-- Spotify playlist name
+```
+"You are a poetic, emotionally intelligent AI with a rich aesthetic vocabulary…"
+```
+
+**The prompt instructs the model to return:**
+- ✨ Aesthetic identity name  
+- 📅 Fictional daily routine (3–5 steps)  
+- 🎭 3–5 personality traits  
+- 🌸 Vibe description  
+- 🎨 Moodboard prompts  
+- 🎵 Spotify playlist name
+
+</details>
 
 ---
 
@@ -266,7 +255,7 @@ Muse.me dynamically calls external tools for real-world integration:
 </tr>
 </table>
 
-## � Future Monetization & Growth
+## 💰 Future Monetization & Growth
 
 <div align="center">
 
@@ -323,13 +312,14 @@ Muse.me/
 ├── .gitignore
 └── README.md
 ```
+
 ## 🤝 Contributing
 
 We welcome contributions! Here's how you can help:
 
 1. **🍴 Fork the repository**
 2. **🌿 Create a feature branch** (`git checkout -b feature/AmazingFeature`)
-3. **� Commit your changes** (`git commit -m 'Add some AmazingFeature'`)
+3. **💾 Commit your changes** (`git commit -m 'Add some AmazingFeature'`)
 4. **📤 Push to the branch** (`git push origin feature/AmazingFeature`)
 5. **🔄 Open a Pull Request**
 
@@ -340,7 +330,7 @@ We welcome contributions! Here's how you can help:
 - 📱 Mobile app development
 - 🧪 Testing and quality assurance
 
-## �📄 License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -365,10 +355,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <sub>⭐ Star this repo if it sparks joy in your aesthetic soul! ⭐</sub>
 
 </div>
-
-
-
-
-
-
-
